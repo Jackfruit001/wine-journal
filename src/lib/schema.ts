@@ -68,12 +68,28 @@ export const entryFieldsSchema = z.object({
 });
 export type EntryFields = z.infer<typeof entryFieldsSchema>;
 
+/** Computed per-field confidence tier (see lib/confidence.ts). */
+export const fieldConfLevelSchema = z.enum(["high", "moderate", "low", "missing"]);
+export const fieldConfidenceMapSchema = z.object({
+  wine_name: fieldConfLevelSchema,
+  producer: fieldConfLevelSchema,
+  vintage: fieldConfLevelSchema,
+  country: fieldConfLevelSchema,
+  region: fieldConfLevelSchema,
+  grape_variety: fieldConfLevelSchema,
+  wine_type: fieldConfLevelSchema,
+  abv: fieldConfLevelSchema,
+});
+
 /** Response shape returned by POST /api/recognize */
 export const recognizeResponseSchema = z.object({
   status: recognitionStatusSchema,
   confidence: z.number().min(0).max(1),
   fields: entryFieldsSchema,
-  confidence_fields: vlmFieldConfidenceSchema.nullable(),
+  /** Tiered per-field confidence for the current fields. */
+  field_confidence: fieldConfidenceMapSchema,
+  /** Raw VLM per-field self-confidence (kept for transparency + client recompute on candidate pick). */
+  vlm_field_confidence: vlmFieldConfidenceSchema.nullable(),
   raw_ocr_text: z.string(),
   candidates: z.array(wineCandidateSchema),
   matched_wine_id: z.number().nullable(),
@@ -95,7 +111,7 @@ export const createEntrySchema = z.object({
   raw_ocr_text: z.string().nullable(),
   recognition_status: recognitionStatusSchema,
   confidence: z.number().nullable(),
-  confidence_fields: vlmFieldConfidenceSchema.nullable(),
+  confidence_fields: fieldConfidenceMapSchema.nullable(),
   candidate_matches: z.array(wineCandidateSchema).nullable(),
   matched_wine_id: z.number().nullable(),
   source: z.enum(["database", "label_only"]).nullable(),
@@ -105,3 +121,20 @@ export const createEntrySchema = z.object({
   user_notes: z.string().nullable(),
 });
 export type CreateEntryInput = z.infer<typeof createEntrySchema>;
+
+/** Fields the user may edit on a saved entry (journal detail view). */
+export const updateEntrySchema = z.object({
+  wine_name: z.string().nullable().optional(),
+  producer: z.string().nullable().optional(),
+  vintage: z.number().int().nullable().optional(),
+  country: z.string().nullable().optional(),
+  region: z.string().nullable().optional(),
+  grape_variety: z.array(z.string()).optional(),
+  wine_type: z.string().nullable().optional(),
+  abv: z.number().nullable().optional(),
+  tasting_note: z.string().nullable().optional(),
+  user_rating: z.number().int().min(1).max(5).nullable().optional(),
+  user_notes: z.string().nullable().optional(),
+  user_edited: z.boolean().optional(),
+});
+export type UpdateEntryInput = z.infer<typeof updateEntrySchema>;

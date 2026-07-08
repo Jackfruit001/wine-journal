@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { fileToDataUrl } from "@/lib/image";
 
 export function CaptureButton({
@@ -10,36 +10,45 @@ export function CaptureButton({
   onCapture: (dataUrl: string) => void;
   disabled?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
-    onCapture(dataUrl);
+    setBusy(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      onCapture(dataUrl);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="flex w-full flex-col items-center gap-3">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleChange}
-      />
+    <div className="flex w-full flex-col items-center gap-3 sm:flex-row sm:items-stretch md:justify-start">
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleChange} />
+      <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={handleChange} />
+
       <button
         type="button"
-        disabled={disabled}
-        onClick={() => inputRef.current?.click()}
-        className="flex h-16 w-16 items-center justify-center rounded-full bg-wine text-3xl text-white shadow-lg shadow-wine/30 transition-transform active:scale-95 disabled:opacity-50"
-        aria-label="Take or upload a photo of a wine label"
+        disabled={disabled || busy}
+        onClick={() => cameraRef.current?.click()}
+        className="flex items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-base font-medium text-white shadow-lg shadow-wine/25 transition-transform active:scale-[0.98] disabled:opacity-50 sm:hidden"
       >
-        📷
+        📷 Take a photo
       </button>
-      <p className="text-sm text-foreground/60">Photograph the label</p>
+
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={() => uploadRef.current?.click()}
+        className="hidden items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-base font-medium text-white shadow-lg shadow-wine/25 transition-transform active:scale-[0.98] disabled:opacity-50 sm:flex"
+      >
+        📷 Upload a wine photo
+      </button>
     </div>
   );
 }

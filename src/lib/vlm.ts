@@ -14,7 +14,7 @@ const EXTRACTION_INSTRUCTIONS = `You are reading a photograph of a wine bottle l
 Required JSON shape:
 {
   "readable": boolean,            // false if there is no legible wine label in the image at all
-  "raw_text": string,             // verbatim text you can actually read on the label, line by line
+  "raw_text": string,             // verbatim text you can actually read on the label, line by line; "" if none
   "wine_name": string | null,     // the cuvée / bottling name, NOT the producer
   "producer": string | null,      // winery / producer / house name
   "vintage": number | null,       // 4-digit year, or null if non-vintage / illegible
@@ -38,13 +38,47 @@ function stripJsonFences(text: string): string {
   return fenced ? fenced[1] : trimmed;
 }
 
-async function recognizeWithOpenRouter(imageDataUrl: string): Promise<VlmExtraction> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
+/** LLM output is a system boundary — normalize the couple of fields models get wrong despite instructions. */
+function normalizeExtraction(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const obj = raw as Record<string, unknown>;
+  return { ...obj, raw_text: obj.raw_text ?? "" };
+}
 
-  const model = process.env.OPENROUTER_VLM_MODEL || "qwen/qwen2.5-vl-72b-instruct";
+/** Consumes an OpenRouter SSE stream and returns the concatenated `delta.content` text. */
+async function readStreamedContent(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("OpenRouter response had no body to stream");
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice("data:".length).trim();
+      if (data === "[DONE]") continue;
+
+      const chunk = JSON.parse(data);
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) content += delta;
+    }
+  }
+
+  return content;
+}
+
+async function callOpenRouterOnce(imageDataUrl: string, apiKey: string, model: string) {
+  return fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -54,6 +88,8 @@ async function recognizeWithOpenRouter(imageDataUrl: string): Promise<VlmExtract
       model,
       response_format: { type: "json_object" },
       temperature: 0,
+      max_tokens: 1024,
+      stream: true,
       messages: [
         {
           role: "user",
@@ -65,17 +101,31 @@ async function recognizeWithOpenRouter(imageDataUrl: string): Promise<VlmExtract
       ],
     }),
   });
+}
+
+async function recognizeWithOpenRouter(imageDataUrl: string): Promise<VlmExtraction> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
+
+  const model = process.env.OPENROUTER_VLM_MODEL || "qwen/qwen2.5-vl-72b-instruct";
+
+  // Upstream providers behind OpenRouter occasionally 5xx transiently; one retry
+  // clears most of those without masking a real, persistent failure.
+  let res = await callOpenRouterOnce(imageDataUrl, apiKey, model);
+  if (!res.ok && res.status >= 500) {
+    await new Promise((r) => setTimeout(r, 1000));
+    res = await callOpenRouterOnce(imageDataUrl, apiKey, model);
+  }
 
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`OpenRouter error ${res.status}: ${body}`);
   }
 
-  const json = await res.json();
-  const content = json.choices?.[0]?.message?.content;
+  const content = await readStreamedContent(res);
   if (!content) throw new Error("OpenRouter returned no content");
 
-  const parsed = JSON.parse(stripJsonFences(content));
+  const parsed = normalizeExtraction(JSON.parse(stripJsonFences(content)));
   return vlmExtractionSchema.parse(parsed);
 }
 
@@ -116,7 +166,7 @@ async function recognizeWithGemini(imageDataUrl: string): Promise<VlmExtraction>
   const content = json.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!content) throw new Error("Gemini returned no content");
 
-  const parsed = JSON.parse(stripJsonFences(content));
+  const parsed = normalizeExtraction(JSON.parse(stripJsonFences(content)));
   return vlmExtractionSchema.parse(parsed);
 }
 

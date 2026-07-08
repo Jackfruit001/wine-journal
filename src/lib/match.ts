@@ -6,16 +6,25 @@ import {
   type WineCandidate,
   wineCandidateSchema,
 } from "./schema";
+import {
+  computeFieldConfidence,
+  DB_BACKED_FIELDS,
+  labelOnlyConfidence,
+  overallConfidence,
+  type FieldConfidenceMap,
+} from "./confidence";
 
-const HIGH_CONFIDENCE_DB_SCORE = 0.7;
-const LOW_CONFIDENCE_DB_SCORE = 0.4;
-const AMBIGUOUS_GAP = 0.08;
-const LABEL_ONLY_MIN_VLM_CONFIDENCE = 0.55;
+/** Routing thresholds on the best DB match score. Dev-editable heuristics. */
+export const HIGH_CONFIDENCE_DB_SCORE = 0.55;
+export const LOW_CONFIDENCE_DB_SCORE = 0.32;
+export const AMBIGUOUS_GAP = 0.08;
+export const LABEL_ONLY_MIN_VLM_CONFIDENCE = 0.55;
 
 export interface ReconcileResult {
   status: RecognitionStatus;
   confidence: number;
   fields: EntryFields;
+  fieldConfidence: FieldConfidenceMap;
   candidates: WineCandidate[];
   matchedWineId: number | null;
   source: "database" | "label_only" | null;
@@ -62,18 +71,23 @@ function fieldsFromVlmOnly(vlm: VlmExtraction): EntryFields {
   };
 }
 
+/** No DB backing → every field's tier comes from the VLM's self-confidence. */
+const NO_DB_FIELDS: ReadonlySet<keyof EntryFields> = new Set();
+
 /**
  * Stage 3 — reconcile the VLM's self-reported extraction with the database's
  * independent verification into one of three states. Confidence is derived
- * primarily from the DB match score, not the VLM's self-confidence, because a
- * model rating its own output is poorly calibrated — see BUILD_PLAN.md §5.
+ * primarily from the DB match score, not the VLM's self-confidence (see
+ * lib/confidence.ts and BUILD_PLAN.md §5).
  */
 export function reconcile(vlm: VlmExtraction, candidates: WineCandidate[]): ReconcileResult {
   if (!vlm.readable || (!vlm.wine_name && !vlm.producer)) {
+    const fields = fieldsFromVlmOnly(vlm);
     return {
       status: "unrecognized",
       confidence: 0,
-      fields: fieldsFromVlmOnly(vlm),
+      fields,
+      fieldConfidence: computeFieldConfidence(fields, vlm.field_confidence, NO_DB_FIELDS),
       candidates: [],
       matchedWineId: null,
       source: null,
@@ -82,13 +96,20 @@ export function reconcile(vlm: VlmExtraction, candidates: WineCandidate[]): Reco
 
   const best = candidates[0];
   const second = candidates[1];
+  const margin = best && second ? best.score - second.score : best ? best.score : 0;
   const gapIsAmbiguous = !!best && !!second && best.score - second.score < AMBIGUOUS_GAP;
 
   if (best && best.score >= HIGH_CONFIDENCE_DB_SCORE && !gapIsAmbiguous) {
+    const fields = fillFromCandidate(vlm, best);
     return {
       status: "recognized",
-      confidence: 0.75 * best.score + 0.25 * vlm.overall_confidence,
-      fields: fillFromCandidate(vlm, best),
+      confidence: overallConfidence({
+        dbScore: best.score,
+        vlmConfidence: vlm.overall_confidence,
+        margin,
+      }),
+      fields,
+      fieldConfidence: computeFieldConfidence(fields, vlm.field_confidence, DB_BACKED_FIELDS),
       candidates: candidates.slice(0, 3),
       matchedWineId: best.id,
       source: "database",
@@ -96,10 +117,12 @@ export function reconcile(vlm: VlmExtraction, candidates: WineCandidate[]): Reco
   }
 
   if (best && (best.score >= LOW_CONFIDENCE_DB_SCORE || gapIsAmbiguous)) {
+    const fields = fieldsFromVlmOnly(vlm);
     return {
       status: "needs_confirmation",
       confidence: best.score,
-      fields: fieldsFromVlmOnly(vlm),
+      fields,
+      fieldConfidence: computeFieldConfidence(fields, vlm.field_confidence, NO_DB_FIELDS),
       candidates: candidates.slice(0, 3),
       matchedWineId: null,
       source: null,
@@ -107,20 +130,24 @@ export function reconcile(vlm: VlmExtraction, candidates: WineCandidate[]): Reco
   }
 
   if (vlm.overall_confidence >= LABEL_ONLY_MIN_VLM_CONFIDENCE && vlm.wine_name && vlm.producer) {
+    const fields = fieldsFromVlmOnly(vlm);
     return {
       status: "recognized",
-      confidence: Math.min(vlm.overall_confidence, 0.65),
-      fields: fieldsFromVlmOnly(vlm),
+      confidence: labelOnlyConfidence(vlm.overall_confidence),
+      fields,
+      fieldConfidence: computeFieldConfidence(fields, vlm.field_confidence, NO_DB_FIELDS),
       candidates: candidates.slice(0, 3),
       matchedWineId: null,
       source: "label_only",
     };
   }
 
+  const fields = fieldsFromVlmOnly(vlm);
   return {
     status: "unrecognized",
     confidence: 0,
-    fields: fieldsFromVlmOnly(vlm),
+    fields,
+    fieldConfidence: computeFieldConfidence(fields, vlm.field_confidence, NO_DB_FIELDS),
     candidates: candidates.slice(0, 3),
     matchedWineId: null,
     source: null,

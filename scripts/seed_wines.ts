@@ -1,14 +1,14 @@
 /**
  * Loads the Kaggle "Wine Reviews" CSV (winemag-data-130k-v2.csv) into the
  * Supabase `wines` table in batches, via the service-role key.
- *
- * Usage: place the CSV at /data/winemag-data-130k-v2.csv, then `npm run seed`.
  */
-import "dotenv/config";
+import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { parse } from "csv-parse";
 import { createReadStream, existsSync } from "node:fs";
 import path from "node:path";
+
+config({ path: path.join(process.cwd(), ".env.local") });
 
 const CSV_PATH = path.join(process.cwd(), "data", "winemag-data-130k-v2.csv");
 const BATCH_SIZE = 500;

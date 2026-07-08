@@ -27,6 +27,10 @@ git clone <repo> && cd vinobuzz-wine-journal
 cp .env.local.example .env.local     # fill in the keys below
 npm install
 
+# one-time Supabase setup:
+#   1. run supabase/schema.sql in the SQL editor (tables + pg_trgm + match_wines RPC)
+#   2. create a PUBLIC storage bucket named "wine-journal"
+
 # one-time: load the wine reference database
 # download Kaggle "Wine Reviews" -> place winemag-data-130k-v2.csv in /data
 npm run seed
@@ -42,6 +46,10 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
+
+> **Deep dive:** [`RECOGNITION.md`](./RECOGNITION.md) documents the full pipeline, the
+> confidence math (formulas + tunable constants), how vintage/type are derived from the
+> dataset, and a thorough limitations/future-work analysis.
 
 ---
 
@@ -60,13 +68,16 @@ Recognition is treated as a **pipeline with an independent verifier**, not a sin
 
 1. **Extract (VLM).** The model returns structured fields, the raw text it read, and per-field confidence. It is instructed **not to guess** — unreadable fields come back `null`, not invented.
 2. **Verify (database).** The proposed `producer + name` is matched against ~130k real wines. This is an *independent* check on whether the wine actually exists — a signal the model can't fake.
-3. **Reconcile.** Overall confidence is derived **primarily from the database match**, because a VLM's confidence in its own output is poorly calibrated. The result is routed to one of three states:
+3. **Reconcile.** Overall confidence is a **deterministic formula** (`lib/confidence.ts`), derived **primarily from the database match** (weight 0.6) with the VLM's self-confidence as a soft nudge (0.25) and candidate separation as a tiebreaker (0.15). The result routes to one of three states:
    - **Recognized** — strong match; fields auto-filled.
-   - **Needs confirmation** — plausible but ambiguous; top candidate wines shown for a one-tap confirm.
+   - **Needs confirmation** — plausible but ambiguous; top candidate wines shown with match bars for a one-tap confirm.
    - **Unrecognized** — can't confirm; the raw text is shown and the user fills a clean form.
-4. **Ground (bonus).** Suggested tasting notes are synthesized from *real* reviews of the matched/similar wines, and clearly labeled as AI suggestions — not free-form hallucination.
+   Every field also gets a **high / moderate / low** confidence tier, so the user knows what to trust vs. check.
+4. **Ground.** Suggested tasting-note chips are distilled from *real* reviews of the matched/similar wines, and clearly labeled as AI suggestions — not free-form hallucination.
 
 Raw OCR text is stored separately from conclusions, so the system always shows its work.
+
+**Full write-up with the confidence formulas is in [`RECOGNITION.md`](./RECOGNITION.md).**
 
 ---
 

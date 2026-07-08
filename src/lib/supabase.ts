@@ -21,4 +21,4 @@ export function supabaseAdmin(): SupabaseClient {
   return adminClient;
 }
 
-export const LABEL_IMAGES_BUCKET = "label-images";
+export const LABEL_IMAGES_BUCKET = "wine-journal";
