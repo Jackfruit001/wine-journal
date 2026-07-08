@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import type { EntryFields } from "@/lib/schema";
 
 /**
@@ -40,7 +41,7 @@ export function TastingNoteInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function addChip(chip: string) {
+  function toggleChip(chip: string) {
     if (used.has(chip)) return;
     const next = notes.trim() ? `${notes.replace(/\s+$/, "")}, ${chip}` : chip;
     onChangeNotes(next);
@@ -54,9 +55,11 @@ export function TastingNoteInput({
       {loading ? (
         <div className="flex gap-2">
           {[0, 1, 2, 3].map((i) => (
-            <span
+            <motion.span
               key={i}
-              className="h-7 w-20 animate-pulse rounded-full bg-black/5 dark:bg-white/10"
+              className="h-7 w-20 rounded-full bg-black/5 dark:bg-white/10"
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ repeat: Infinity, duration: 1.2, delay: i * 0.15 }}
             />
           ))}
         </div>
@@ -64,21 +67,30 @@ export function TastingNoteInput({
         suggestions.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap gap-2">
-              {suggestions.map((chip) => (
-                <button
-                  key={chip}
-                  type="button"
-                  onClick={() => addChip(chip)}
-                  disabled={used.has(chip)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    used.has(chip)
-                      ? "border-transparent bg-wine/10 text-wine/50 line-through"
-                      : "border-wine/30 bg-wine/5 text-wine hover:bg-wine/10"
-                  }`}
-                >
-                  + {chip}
-                </button>
-              ))}
+              {suggestions.map((chip, i) => {
+                const isUsed = used.has(chip);
+                return (
+                  <motion.button
+                    key={chip}
+                    type="button"
+                    onClick={() => toggleChip(chip)}
+                    disabled={isUsed}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.05, type: "spring", stiffness: 400, damping: 20 }}
+                    whileHover={!isUsed ? { scale: 1.05 } : undefined}
+                    whileTap={!isUsed ? { scale: 0.94 } : undefined}
+                    className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      isUsed
+                        ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : "border-wine/30 bg-wine/5 text-wine hover:bg-wine/10"
+                    }`}
+                  >
+                    <span>{isUsed ? "✓" : "+"}</span>
+                    {chip}
+                  </motion.button>
+                );
+              })}
             </div>
             <span className="text-[11px] text-foreground/40">
               AI suggestions from real reviews of similar wines — tap to add, then edit freely.
@@ -87,13 +99,27 @@ export function TastingNoteInput({
         )
       )}
 
-      <textarea
-        value={notes}
-        onChange={(e) => onChangeNotes(e.target.value)}
-        rows={3}
-        className="rounded-lg border border-black/10 bg-white/70 px-3 py-2 outline-none focus:border-wine dark:border-white/10 dark:bg-white/5"
-        placeholder="Tap a suggestion above, or write your own…"
-      />
+      <div className="relative">
+        <textarea
+          value={notes}
+          onChange={(e) => onChangeNotes(e.target.value)}
+          rows={4}
+          className="w-full resize-none rounded-xl border border-black/10 bg-white/70 p-3.5 leading-relaxed shadow-sm outline-none transition-all placeholder:text-foreground/35 focus:border-wine focus:ring-2 focus:ring-wine/15 dark:border-white/10 dark:bg-white/5"
+          placeholder="Tap a suggestion above, or write your own…"
+        />
+        <AnimatePresence>
+          {notes.length > 0 && (
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="pointer-events-none absolute bottom-2.5 right-3 text-[11px] tabular-nums text-foreground/30"
+            >
+              {notes.length}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

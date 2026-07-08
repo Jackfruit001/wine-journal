@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { animate, motion } from "motion/react";
 import { describeConfidence, type ConfidenceTier } from "@/lib/confidence";
 import type { RecognitionStatus } from "@/lib/schema";
 
@@ -28,6 +32,16 @@ export function ConfidenceMeter({
   source?: "database" | "label_only" | null;
 }) {
   const { pct, label, tier } = describeConfidence(confidence);
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    const controls = animate(0, pct, {
+      duration: 0.9,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    });
+    return () => controls.stop();
+  }, [pct]);
 
   const basis =
     status === "needs_confirmation"
@@ -39,10 +53,15 @@ export function ConfidenceMeter({
           : "Based on what we could read.";
 
   return (
-    <div className="rounded-xl border border-black/10 bg-white/60 p-4 dark:border-white/10 dark:bg-white/5">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="rounded-xl border border-black/10 bg-white/60 p-4 dark:border-white/10 dark:bg-white/5"
+    >
       <div className="mb-2 flex items-baseline justify-between">
         <span className={`text-sm font-semibold ${TIER_TEXT[tier]}`}>{label}</span>
-        <span className={`text-sm font-medium tabular-nums ${TIER_TEXT[tier]}`}>{pct}%</span>
+        <span className={`text-sm font-medium tabular-nums ${TIER_TEXT[tier]}`}>{display}%</span>
       </div>
       <div
         className="h-2 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10"
@@ -51,12 +70,14 @@ export function ConfidenceMeter({
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${TIER_BAR[tier]}`}
-          style={{ width: `${Math.max(pct, 4)}%` }}
+        <motion.div
+          className={`h-full rounded-full ${TIER_BAR[tier]}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.max(pct, 4)}%` }}
+          transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
         />
       </div>
       <p className="mt-2 text-xs text-foreground/50">{basis}</p>
-    </div>
+    </motion.div>
   );
 }

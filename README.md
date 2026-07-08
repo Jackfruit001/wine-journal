@@ -5,7 +5,7 @@ database of real wines, and creates a dated journal entry you can correct and sa
 It's built as a prototype — the emphasis is on getting the recognition flow working
 end to end and on being honest when the AI isn't sure, rather than on feature count.
 
-**Live demo:** _<paste Vercel link>_
+**Live demo:** _<link>https://wine-journal-tau.vercel.app</link>_
 **Screen recording:** _<paste link>_
 
 ---

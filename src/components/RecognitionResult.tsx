@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "motion/react";
 import { ConfidenceMeter } from "./ConfidenceMeter";
 import { CandidatePicker } from "./CandidatePicker";
 import { EntryForm } from "./EntryForm";
@@ -60,7 +61,12 @@ export function RecognitionResult({
 
   if (result.status === "needs_confirmation" && !resolved) {
     return (
-      <div className="flex flex-col gap-4">
+      <motion.div
+        className="flex flex-col gap-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
         <ConfidenceMeter confidence={result.confidence} status={result.status} />
         <div className="flex items-center justify-end">
           <button onClick={onRetake} className="text-sm text-foreground/60 underline underline-offset-2">
@@ -99,13 +105,18 @@ export function RecognitionResult({
             })
           }
         />
-      </div>
+      </motion.div>
     );
   }
 
   const state = resolved as ResolvedState;
   return (
-    <div className="flex flex-col gap-4">
+    <motion.div
+      className="flex flex-col gap-4"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+    >
       <ConfidenceMeter confidence={state.confidence} status={state.status} source={state.source} />
       <div className="flex items-center justify-end">
         <button onClick={onRetake} className="text-sm text-foreground/60 underline underline-offset-2">
@@ -124,6 +135,6 @@ export function RecognitionResult({
         source={state.source}
         onSaved={onSaved}
       />
-    </div>
+    </motion.div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { motion } from "motion/react";
 import { fileToDataUrl } from "@/lib/image";
 
 export function CaptureButton({
@@ -27,20 +28,29 @@ export function CaptureButton({
   }
 
   return (
-    <div className="flex w-full flex-col items-center gap-3 sm:items-stretch md:justify-start">
+    <div className="flex w-full flex-col items-center gap-3 md:items-start">
       {/* No `capture` attribute — on iOS/Android this opens the native action sheet
           (Take Photo / Photo Library / Choose File) instead of jumping straight into
           the camera app. On desktop it opens the file picker. */}
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleChange} />
 
-      <button
+      <motion.button
         type="button"
         disabled={disabled || busy}
         onClick={() => inputRef.current?.click()}
-        className="flex items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-base font-medium text-white shadow-lg shadow-wine/25 transition-transform active:scale-[0.98] disabled:opacity-50"
+        whileHover={{ scale: 1.03 }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 400, damping: 17 }}
+        className="flex items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-base font-medium text-white shadow-lg shadow-wine/25 disabled:opacity-50"
       >
-        📷 Take or choose a photo
-      </button>
+        <motion.span
+          animate={busy ? { rotate: [0, -12, 12, 0] } : {}}
+          transition={{ repeat: busy ? Infinity : 0, duration: 1 }}
+        >
+          📷
+        </motion.span>
+        {busy ? "Preparing…" : "Take or choose a photo"}
+      </motion.button>
     </div>
   );
 }

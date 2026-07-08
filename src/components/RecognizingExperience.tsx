@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import { AnimatePresence, motion } from "motion/react";
 
 /**
  * Recognition takes a few seconds (a vision model reads the label, then we verify
@@ -32,7 +33,12 @@ export function RecognizingExperience({ imageDataUrl }: { imageDataUrl: string |
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 py-8 text-center">
       {imageDataUrl && (
-        <div className="relative">
+        <motion.div
+          className="relative"
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
           <Image
             src={imageDataUrl}
             alt="Captured label"
@@ -44,21 +50,43 @@ export function RecognizingExperience({ imageDataUrl }: { imageDataUrl: string |
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
             <div className="absolute inset-x-0 h-1/3 animate-scan bg-gradient-to-b from-transparent via-wine/25 to-transparent" />
           </div>
-        </div>
+          {/* soft breathing glow while thinking */}
+          <motion.div
+            className="pointer-events-none absolute -inset-1 rounded-3xl ring-2 ring-wine/30"
+            animate={{ opacity: [0.2, 0.6, 0.2] }}
+            transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+          />
+        </motion.div>
       )}
 
-      <div className="flex flex-col items-center gap-3">
-        <p className="text-lg font-medium">
-          <span className="mr-2">{STEPS[step].emoji}</span>
-          {STEPS[step].text}
-        </p>
+      <div className="flex min-h-[3.5rem] flex-col items-center gap-3">
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={step}
+            className="text-lg font-medium"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.span
+              className="mr-2 inline-block"
+              initial={{ scale: 0.5 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", stiffness: 350, damping: 12 }}
+            >
+              {STEPS[step].emoji}
+            </motion.span>
+            {STEPS[step].text}
+          </motion.p>
+        </AnimatePresence>
         <div className="flex gap-1.5">
           {STEPS.map((_, i) => (
-            <span
+            <motion.span
               key={i}
-              className={`h-1.5 rounded-full transition-all duration-500 ${
-                i <= step ? "w-6 bg-wine" : "w-1.5 bg-black/15 dark:bg-white/15"
-              }`}
+              className="h-1.5 rounded-full bg-wine"
+              animate={{ width: i <= step ? 24 : 6, opacity: i <= step ? 1 : 0.2 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             />
           ))}
         </div>

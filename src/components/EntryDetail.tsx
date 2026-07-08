@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 import { WineFieldsEditor } from "./WineFieldsEditor";
 import { TastingNoteInput } from "./TastingNoteInput";
 import { StarRating } from "./StarRating";
@@ -34,6 +35,7 @@ export function EntryDetail({ id }: { id: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch(`/api/entries/${id}`)
@@ -83,86 +85,123 @@ export function EntryDetail({ id }: { id: string }) {
 
   async function handleDelete() {
     if (!confirm("Delete this journal entry?")) return;
+    setDeleting(true);
     await fetch(`/api/entries/${id}`, { method: "DELETE" });
-    router.push("/journal");
+    // let the exit animation play, then leave
+    setTimeout(() => router.push("/journal"), 320);
   }
 
   if (error && !entry) return <p className="text-sm text-rose-600">{error}</p>;
   if (!entry || !fields) return <p className="text-sm text-foreground/60">Loading…</p>;
 
   return (
-    <div className="grid gap-8 md:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-      <div className="flex flex-col gap-3 md:sticky md:top-24 md:self-start">
-        <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl bg-gradient-to-b from-wine/5 to-wine/15 shadow-md">
-          {entry.image_url ? (
-            <Image
-              src={entry.image_url}
-              alt={fields.wine_name ?? "Wine label"}
-              fill
-              sizes="(min-width: 768px) 360px, 100vw"
-              unoptimized
-              className="object-contain"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-6xl opacity-30">🍷</div>
-          )}
-        </div>
-        <p className="text-center text-xs text-foreground/50">
-          Journalled {new Date(entry.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}
-        </p>
-        {entry.confidence !== null && (
-          <ConfidenceMeter confidence={entry.confidence} status={entry.recognition_status} source={entry.source} />
-        )}
-      </div>
-
-      <div className="flex flex-col gap-5">
-        <WineFieldsEditor fields={fields} onChange={setFields} fieldConfidence={entry.confidence_fields} />
-
-        <StarRating value={rating} onChange={setRating} />
-
-        <TastingNoteInput
-          fields={fields}
-          matchedWineId={entry.matched_wine_id}
-          notes={notes}
-          onChangeNotes={setNotes}
-        />
-
-        {entry.raw_ocr_text && (
-          <div className="rounded-lg border border-black/10 dark:border-white/10">
-            <button
-              type="button"
-              onClick={() => setShowRaw((s) => !s)}
-              className="w-full px-3 py-2 text-left text-sm font-medium text-foreground/70"
+    <AnimatePresence>
+      {!deleting && (
+        <motion.div
+          exit={{ opacity: 0, scale: 0.96, filter: "blur(4px)" }}
+          transition={{ duration: 0.3 }}
+          className="grid gap-8 md:grid-cols-[minmax(0,360px)_minmax(0,1fr)]"
+        >
+          {/* Image column — sticky & fully visible on desktop, at the top on mobile */}
+          <div className="flex flex-col gap-3 md:sticky md:top-24 md:self-start">
+            <motion.div
+              className="flex justify-center overflow-hidden rounded-2xl bg-gradient-to-b from-wine/5 to-wine/15 p-2 shadow-md"
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
             >
-              {showRaw ? "▾" : "▸"} What we read off the label
-            </button>
-            {showRaw && (
-              <pre className="whitespace-pre-wrap break-words border-t border-black/10 px-3 py-2 text-xs text-foreground/60 dark:border-white/10">
-                {entry.raw_ocr_text}
-              </pre>
-            )}
+              {entry.image_url ? (
+                <Image
+                  src={entry.image_url}
+                  alt={fields.wine_name ?? "Wine label"}
+                  width={360}
+                  height={480}
+                  unoptimized
+                  className="max-h-[40vh] w-auto rounded-xl object-contain md:max-h-[calc(100vh-11rem)]"
+                />
+              ) : (
+                <div className="flex aspect-[3/4] w-full items-center justify-center text-6xl opacity-30">🍷</div>
+              )}
+            </motion.div>
+            <p className="text-center text-xs text-foreground/50">
+              Journalled {new Date(entry.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}
+            </p>
           </div>
-        )}
 
-        {error && <p className="text-sm text-rose-600">{error}</p>}
+          {/* Editing column — scrolls independently */}
+          <div className="flex flex-col gap-5">
+            {entry.confidence !== null && (
+              <ConfidenceMeter confidence={entry.confidence} status={entry.recognition_status} source={entry.source} />
+            )}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-full bg-wine px-5 py-2.5 font-medium text-white transition-transform active:scale-[0.98] disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-          {saved && <span className="text-sm text-emerald-600">✓ Saved</span>}
-          <button
-            onClick={handleDelete}
-            className="ml-auto text-sm font-medium text-foreground/50 hover:text-rose-600"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+            <WineFieldsEditor fields={fields} onChange={setFields} fieldConfidence={entry.confidence_fields} />
+
+            <StarRating value={rating} onChange={setRating} />
+
+            <TastingNoteInput
+              fields={fields}
+              matchedWineId={entry.matched_wine_id}
+              notes={notes}
+              onChangeNotes={setNotes}
+            />
+
+            {entry.raw_ocr_text && (
+              <div className="rounded-lg border border-black/10 dark:border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setShowRaw((s) => !s)}
+                  className="w-full px-3 py-2 text-left text-sm font-medium text-foreground/70"
+                >
+                  {showRaw ? "▾" : "▸"} What we read off the label
+                </button>
+                <AnimatePresence initial={false}>
+                  {showRaw && (
+                    <motion.pre
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden whitespace-pre-wrap break-words border-t border-black/10 px-3 text-xs text-foreground/60 dark:border-white/10"
+                    >
+                      <span className="block py-2">{entry.raw_ocr_text}</span>
+                    </motion.pre>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {error && <p className="text-sm text-rose-600">{error}</p>}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <motion.button
+                onClick={handleSave}
+                disabled={saving}
+                whileTap={{ scale: 0.97 }}
+                className="rounded-full bg-wine px-5 py-2.5 font-medium text-white disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </motion.button>
+              <AnimatePresence>
+                {saved && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.7 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-sm font-medium text-emerald-600"
+                  >
+                    ✓ Saved
+                  </motion.span>
+                )}
+              </AnimatePresence>
+              <button
+                onClick={handleDelete}
+                className="ml-auto text-sm font-medium text-foreground/50 transition-colors hover:text-rose-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
