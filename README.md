@@ -1,127 +1,230 @@
-# 🍷 VinoBuzz Wine Journal — Take-Home Demo
+# 🍷 VinoBuzz Wine Journal
 
-An AI-powered wine journal. Photograph a wine label, and the app recognizes the wine, auto-creates a dated journal entry, and lets you correct anything before saving to a searchable history.
+Photograph a wine label; the app reads it, tries to identify the wine against a
+database of real wines, and creates a dated journal entry you can correct and save.
+It's built as a prototype — the emphasis is on getting the recognition flow working
+end to end and on being honest when the AI isn't sure, rather than on feature count.
 
 **Live demo:** _<paste Vercel link>_
 **Screen recording:** _<paste link>_
-
-> Built as a prototype. The focus is AI *product judgement* — specifically, being honest about uncertainty — over feature count.
 
 ---
 
 ## What it does
 
-1. Capture or upload a photo of a wine label (camera-first on mobile).
-2. AI reads the label and proposes the wine.
-3. The app creates a journal entry dated today, auto-filling wine name, producer, vintage, region/country, grape variety, type, and ABV where possible.
-4. It shows **how confident** it is and **exactly what text it read**, and every field is editable.
-5. When it isn't sure, it says so — offering candidate matches to confirm, or a clean manual form, instead of guessing.
-6. Saved entries appear in a searchable journal.
+1. Take or upload a photo of a wine label (camera-first on mobile).
+2. A vision model reads the label and proposes the wine.
+3. The proposal is checked against ~130k real wines; the app computes a confidence
+   score and routes to one of three outcomes:
+   - **Recognized** — fields auto-filled, confidence shown.
+   - **Needs confirmation** — a few close matches offered to pick from.
+   - **Unrecognized** — the raw text is shown and you fill a clean form.
+4. Every field is editable, each shows a per-field confidence tag, and you can add a
+   rating and tasting notes (with one-tap AI suggestions).
+5. Saved entries appear in a searchable journal; click any entry to view and edit it.
 
 ---
 
 ## How to run
 
+**Prerequisites:** Node 18+, a Supabase project, and an OpenRouter API key
+(optionally a Google AI Studio key for the fallback).
+
 ```bash
-git clone <repo> && cd vinobuzz-wine-journal
+git clone <repo> && cd wine-journal
 cp .env.local.example .env.local     # fill in the keys below
 npm install
-
-# one-time Supabase setup:
-#   1. run supabase/schema.sql in the SQL editor (tables + pg_trgm + match_wines RPC)
-#   2. create a PUBLIC storage bucket named "wine-journal"
-
-# one-time: load the wine reference database
-# download Kaggle "Wine Reviews" -> place winemag-data-130k-v2.csv in /data
-npm run seed
-
-npm run dev                          # http://localhost:3000
 ```
 
-**Environment variables**
+**1. Environment variables** (`.env.local`)
 
 ```
-OPENROUTER_API_KEY=          # VLM (Qwen2.5-VL). Or GOOGLE_API_KEY for the Gemini fallback.
+OPENROUTER_API_KEY=            # primary VLM (Qwen2.5-VL)
+GOOGLE_API_KEY=                # optional: Gemini fallback
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-> **Deep dive:** [`RECOGNITION.md`](./RECOGNITION.md) documents the full pipeline, the
-> confidence math (formulas + tunable constants), how vintage/type are derived from the
-> dataset, and a thorough limitations/future-work analysis.
+**2. Supabase setup**
+- Run [`supabase/schema.sql`](./supabase/schema.sql) in the SQL editor. It creates the
+  `wines` and `entries` tables, the `pg_trgm` extension + trigram index, the
+  `match_wines` search function, and permissive RLS policies for the demo.
+- Create a **public** Storage bucket named `wine-journal` (holds the label images).
+
+**3. Seed the wine database**
+- Download the Kaggle [*Wine Reviews*](https://www.kaggle.com/datasets/zynicide/wine-reviews)
+  dataset and place `winemag-data-130k-v2.csv` in `/data`.
+- `npm run seed` — streams ~130k rows into Postgres (a few minutes).
+
+**4. Run**
+```bash
+npm run dev          # http://localhost:3000
+```
+
+**Deploy:** push to GitHub, import into Vercel, set the same env vars, deploy.
 
 ---
 
-## What AI / model / API I used
+## What AI / models / APIs I used
 
-- **Vision-language model:** **Qwen2.5-VL** (open-weight) via **OpenRouter**, for reading the label and extracting structured fields + raw text in one pass.
-- **Provider-agnostic by design:** all model access sits behind `lib/vlm.ts`, so the backend can switch to Gemini 2.5 Flash, GPT, or Claude with a one-line change. A Gemini fallback is included.
-- **Wine reference database:** the open Kaggle *Wine Reviews* dataset (~130k real wines with tasting notes), loaded into Postgres.
-- **Matching:** Postgres `pg_trgm` trigram similarity (fuzzy, OCR-typo tolerant). `pgvector` semantic matching is scoped as an upgrade.
+- **Vision-language model — Qwen2.5-VL (open-weight) via OpenRouter.** Reads the label
+  and returns structured fields + the raw text it read + per-field self-confidence, in
+  one call. Chosen because it has strong OCR / document understanding, is open-weight,
+  and is hosted (no GPU to manage).
+- **Provider-agnostic layer.** All model access sits behind `lib/vlm.ts`. A **Gemini
+  2.5 Flash** implementation is included and used automatically if the OpenRouter call
+  fails and a Google key is set. Switching the primary model is a one-line change.
+- **Wine reference database — Kaggle *Wine Reviews* (~130k wines).** Loaded into
+  Postgres. It doubles as the identity check and as the grounding source for tasting
+  notes (it carries real review text).
+- **Matching — Postgres `pg_trgm`** trigram similarity: fuzzy, tolerant of OCR typos,
+  no embedding step.
 
 ---
 
 ## Recognition approach
 
-Recognition is treated as a **pipeline with an independent verifier**, not a single model call:
+Instead of trusting a single model call, recognition runs as a short pipeline where the
+database independently checks the model's answer:
 
-1. **Extract (VLM).** The model returns structured fields, the raw text it read, and per-field confidence. It is instructed **not to guess** — unreadable fields come back `null`, not invented.
-2. **Verify (database).** The proposed `producer + name` is matched against ~130k real wines. This is an *independent* check on whether the wine actually exists — a signal the model can't fake.
-3. **Reconcile.** Overall confidence is a **deterministic formula** (`lib/confidence.ts`), derived **primarily from the database match** (weight 0.6) with the VLM's self-confidence as a soft nudge (0.25) and candidate separation as a tiebreaker (0.15). The result routes to one of three states:
-   - **Recognized** — strong match; fields auto-filled.
-   - **Needs confirmation** — plausible but ambiguous; top candidate wines shown with match bars for a one-tap confirm.
-   - **Unrecognized** — can't confirm; the raw text is shown and the user fills a clean form.
-   Every field also gets a **high / moderate / low** confidence tier, so the user knows what to trust vs. check.
-4. **Ground.** Suggested tasting-note chips are distilled from *real* reviews of the matched/similar wines, and clearly labeled as AI suggestions — not free-form hallucination.
+```
+photo → /api/recognize
+   1. Extract   (Qwen2.5-VL)   → fields + raw_text + self-confidence
+   2. Verify    (pg_trgm)      → top candidates from ~130k real wines + scores
+   3. Reconcile (formula)      → status + overall confidence + per-field tiers
+   4. Notes     (lazy, grounded) → tasting-note chips from real reviews
+```
 
-Raw OCR text is stored separately from conclusions, so the system always shows its work.
+**Why a verifier instead of the model's own confidence.** A vision model rating its own
+output is poorly calibrated — it stays confident even when it has misread a label. So I
+use the **database match as the primary confidence signal**, because it's independent of
+the model that might be wrong. When both agree, that's real evidence; when they don't,
+the app asks the user rather than guessing.
 
-**Full write-up with the confidence formulas is in [`RECOGNITION.md`](./RECOGNITION.md).**
+**The model is told not to guess.** Unreadable fields must come back `null` with low
+confidence, not an invented value. The reconciliation math relies on nulls being honest.
+The raw text the model read is stored separately from the conclusions, so the app can
+always show its work ("What we read off the label").
+
+### The confidence math (deterministic, in `lib/confidence.ts`)
+
+None of this is an LLM call — it's a formula with constants a developer can retune.
+
+- **Overall confidence** for a database match:
+  ```
+  overall = 0.60·dbScore + 0.25·vlmConfidence + 0.15·clamp(margin / 0.20)
+  ```
+  The DB match dominates (0.60); the model's self-confidence is a soft nudge (0.25);
+  the gap between the #1 and #2 candidates breaks ties (0.15). Label-only wines (read
+  confidently but absent from the DB) are capped at 0.65 because we can't verify them; a
+  user confirming a candidate floors at 0.85.
+- **Routing** on the best trigram score:
+
+  | Condition | Status |
+  |---|---|
+  | score ≥ 0.55 and not ambiguous | `recognized` (from database) |
+  | 0.32 ≤ score < 0.55, or top-2 within 0.08 | `needs_confirmation` |
+  | score < 0.32 but a confident readable label | `recognized` (label-only) |
+  | unreadable / no name / no match | `unrecognized` |
+
+  > The thresholds are 0.55 / 0.32 rather than something higher because trigram
+  > similarity is diluted by the extra tokens real DB titles carry (vintage, appellation,
+  > "(California)"). A strong match — e.g. "Kendall-Jackson Chardonnay" vs.
+  > "Kendall-Jackson 2012 Avant Chardonnay (California)" — scores ~0.56, not 0.9. I tuned
+  > them against the dataset's actual score distribution; they'd want proper calibration
+  > on labelled photos in production.
+
+- **Per-field tiers (high / moderate / low / missing).** A field confirmed by the matched
+  DB record is `high`; otherwise it falls back to the model's per-field confidence
+  (≥0.70 high, ≥0.45 moderate, else low); empty is `missing`. This is why, after you
+  confirm a match, name/region/vintage read `high` while ABV may read lower — only the
+  label vouches for ABV (see below).
+
+### How vintage and wine type are derived
+
+The Kaggle dataset has no `vintage` or `wine_type` column, so it's worth being explicit:
+
+- **Vintage** — parsed with a regex from the wine `title` at seed time
+  (`"…2011 Avidagos Red"` → 2011). At recognition, the vintage comes mainly from the
+  model reading the label; the DB value is a fallback.
+- **Wine type (red/white/…)** — not in the dataset at all (the `variety` column is a
+  grape). So `wine_type` comes only from the model. That's why it's never DB-confirmed
+  and shows lower confidence than DB-backed fields — an honest reflection of its source.
 
 ---
 
 ## What works well
 
-- End-to-end flow from photo to saved, editable journal entry.
-- Honest uncertainty: confidence badges, low-confidence fields flagged, and three distinct UX states instead of one confident guess.
-- Graceful handling of blurry / angled / cropped labels — they route to confirmation or manual entry rather than a wrong "answer."
-- Correction is first-class: every field is inline-editable; edits are recorded.
-- Mobile-first, camera-first, minimal typing.
-
----
+- The core flow works end to end on desktop and mobile: photo → recognize → editable,
+  auto-filled entry → saved, searchable journal → reopen and edit.
+- Uncertainty is visible and honest: an overall confidence meter, per-field confidence
+  tags, three distinct outcome states, and a "what we read" view. The app doesn't show a
+  single confident guess where it should show doubt.
+- Fallback handling is real: OpenRouter → Gemini failover, one retry on transient 5xx,
+  and graceful degradation (a failed image upload or a failed tasting-note call never
+  breaks recognition or saving).
+- Correction is first-class: everything is inline-editable in both the capture flow and
+  the saved entry, and edits set `user_edited`.
+- The logic is separable and testable: the confidence math and matching are pure
+  functions, provider details are isolated behind one file.
 
 ## Known limitations
 
-- **Database coverage.** ~130k wines skews toward reviewed/notable bottles; obscure wines are handled as "from the label only," clearly labeled, but won't get database enrichment.
-- **Confidence thresholds are heuristic**, not calibrated on a labeled photo set.
-- **Trigram matching** can miss on heavy OCR noise or very different naming conventions (the pgvector path addresses this).
-- **Single-label assumption** — one bottle per photo.
-- **VLM self-reported field confidence** is used only as a soft signal, by design.
-
----
+- **Assumes a legible label.** Recognition works from label text; a bare/unlabelled
+  bottle or a decanter can't be identified from pixels alone. In practice wine bottles
+  almost always carry a label (it's legally required), so this is a boundary rather than
+  a common failure — but it's real.
+- **Database coverage & skew.** ~130k Wine Enthusiast wines skew toward reviewed/notable
+  bottles. Obscure wines land in `label_only` (clearly labelled) with no DB enrichment.
+- **Thresholds are heuristic**, tuned to the dataset's score distribution by hand, not
+  calibrated on labelled label photos.
+- **Trigram limits.** Heavy OCR noise or very different naming can miss; long DB titles
+  dilute similarity. The dataset also contains many near-duplicate bottlings, so
+  candidate lists can look repetitive.
+- **No tests yet**, and no auth (the demo journal is a single shared history).
 
 ## What I'd improve with more time
 
-- Calibrate thresholds on a labeled set of real label photos; measure recognition precision/recall.
-- Capture user corrections (`user_edited`) as labeled training data to improve extraction over time.
-- `pgvector` semantic matching for robustness to OCR noise and paraphrase.
-- Multi-crop / de-skew preprocessing for angled labels.
-- A lightweight two-tap "confirm producer + vintage" flow for the ambiguous case.
-- Cache by image hash to avoid re-charging for repeat photos.
+- **Calibrate on real photos:** collect a labelled set, measure precision/recall, and fit
+  the weights/thresholds instead of hand-tuning them.
+- **Semantic matching with `pgvector`** (embed `winery + title`) for robustness to OCR
+  noise and paraphrase where trigram misses.
+- **Reverse-image matching** (e.g. Google Vision web detection) as a second recognition
+  path for wines absent from the text database — closer to how Vivino identifies bottles.
+- **Learn from corrections:** `user_edited` diffs are labelled training data for
+  improving extraction and recalibrating confidence.
+- **Image preprocessing** (de-skew, multi-crop) for angled or partially cropped labels,
+  and de-duplicating candidates that differ only by vintage.
+- **Cache by image hash** so re-uploading the same photo doesn't re-run the model.
 
 ---
 
-## Architecture
+## Project structure
 
 ```
-photo → /api/recognize
-          ├─ Stage 1  VLM extraction (Qwen2.5-VL)      → fields + raw text + confidence
-          ├─ Stage 2  Postgres pg_trgm match           → candidates + scores  (verifier)
-          ├─ Stage 3  Reconcile                        → status + confidence
-          └─ Stage 4  Grounded tasting note (bonus)     → RAG over real reviews
-       → frontend renders recognized / needs_confirmation / unrecognized
-       → Supabase (Postgres + Storage)
+src/
+  app/
+    page.tsx                        capture → reading → result → saved flow
+    journal/page.tsx                searchable history (grid)
+    journal/[id]/page.tsx           entry detail + edit
+    api/recognize/route.ts          orchestrates extract → verify → reconcile
+    api/entries/route.ts            list / create entries
+    api/entries/[id]/route.ts       get / edit / delete one entry
+    api/tasting-suggestions/route.ts grounded note chips (lazy)
+  lib/
+    vlm.ts            provider-agnostic VLM extraction (Qwen2.5-VL / Gemini)
+    match.ts          DB candidate query + reconciliation state machine
+    confidence.ts     all confidence math — weights, thresholds, per-field tiers
+    tastingNote.ts    grounded tasting-note generation
+    schema.ts         Zod contracts (VLM output, API responses, entries)
+    storage.ts        label-image upload to Supabase Storage
+    supabase.ts       client + admin (service-role) helpers
+    image.ts          client-side downscale before upload
+  components/         capture button, result states, confidence meter, editors, journal
+scripts/seed_wines.ts CSV → Postgres loader
+supabase/schema.sql   tables, trigram index, match_wines function, RLS
 ```
 
-Tech: Next.js (App Router) + TypeScript + Tailwind · Supabase (Postgres + Storage) · Qwen2.5-VL via OpenRouter · Vercel.
+**Stack:** Next.js (App Router) + TypeScript + Tailwind · Supabase (Postgres + Storage) ·
+Qwen2.5-VL via OpenRouter (Gemini fallback) · deployed on Vercel.

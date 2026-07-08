@@ -93,6 +93,7 @@ export function JournalList() {
                     src={entry.image_url}
                     alt={entry.wine_name ?? "Wine label"}
                     fill
+                    sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                     unoptimized
                     className="object-cover transition-transform duration-300 group-hover:scale-105"
                   />

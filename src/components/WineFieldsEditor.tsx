@@ -25,6 +25,9 @@ const LEVEL_META: Record<FieldConfLevel, { label: string; dot: string; text: str
 
 function ConfChip({ level }: { level: FieldConfLevel }) {
   const meta = LEVEL_META[level];
+  // Entries saved before the confidence-tier rewrite may carry the old raw-number
+  // shape in `confidence_fields` — render nothing rather than crash on unknown data.
+  if (!meta) return null;
   return (
     <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${meta.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />

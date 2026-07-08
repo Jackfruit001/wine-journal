@@ -99,6 +99,7 @@ export function EntryDetail({ id }: { id: string }) {
               src={entry.image_url}
               alt={fields.wine_name ?? "Wine label"}
               fill
+              sizes="(min-width: 768px) 360px, 100vw"
               unoptimized
               className="object-contain"
             />
