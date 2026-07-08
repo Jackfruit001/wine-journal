@@ -60,6 +60,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 **4. Run**
 ```bash
 npm run dev          # http://localhost:3000
+npm test             # unit tests for the confidence math + reconcile logic
 ```
 
 **Deploy:** push to GitHub, import into Vercel, set the same env vars, deploy.
@@ -166,8 +167,9 @@ The Kaggle dataset has no `vintage` or `wine_type` column, so it's worth being e
   breaks recognition or saving).
 - Correction is first-class: everything is inline-editable in both the capture flow and
   the saved entry, and edits set `user_edited`.
-- The logic is separable and testable: the confidence math and matching are pure
-  functions, provider details are isolated behind one file.
+- The logic is separable and tested: the confidence math and matching are pure
+  functions with unit tests (`npm test`, 21 cases), and provider details are isolated
+  behind one file.
 
 ## Known limitations
 
@@ -182,7 +184,8 @@ The Kaggle dataset has no `vintage` or `wine_type` column, so it's worth being e
 - **Trigram limits.** Heavy OCR noise or very different naming can miss; long DB titles
   dilute similarity. The dataset also contains many near-duplicate bottlings, so
   candidate lists can look repetitive.
-- **No tests yet**, and no auth (the demo journal is a single shared history).
+- **No auth** — the demo journal is a single shared history. Tests cover the pure logic;
+  the network/DB paths are exercised manually.
 
 ## What I'd improve with more time
 
@@ -224,6 +227,7 @@ src/
   components/         capture button, result states, confidence meter, editors, journal
 scripts/seed_wines.ts CSV → Postgres loader
 supabase/schema.sql   tables, trigram index, match_wines function, RLS
+tests/                unit tests for confidence.ts and match.ts (reconcile)
 ```
 
 **Stack:** Next.js (App Router) + TypeScript + Tailwind · Supabase (Postgres + Storage) ·
