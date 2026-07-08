@@ -4,6 +4,9 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { generateTastingSuggestions } from "@/lib/tastingNote";
 import { entryFieldsSchema } from "@/lib/schema";
 
+// Involves an LLM call; allow headroom over the default 10s timeout.
+export const maxDuration = 60;
+
 const requestSchema = z.object({
   fields: entryFieldsSchema,
   matched_wine_id: z.number().nullable(),

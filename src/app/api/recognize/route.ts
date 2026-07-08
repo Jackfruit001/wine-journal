@@ -6,6 +6,9 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { uploadLabelImage } from "@/lib/storage";
 import type { RecognizeResponse } from "@/lib/schema";
 
+// The VLM call (plus a possible retry) can exceed Vercel's default 10s timeout.
+export const maxDuration = 60;
+
 const requestSchema = z.object({
   image: z.string().startsWith("data:image/"),
 });
