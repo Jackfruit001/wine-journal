@@ -6,7 +6,7 @@ It's built as a prototype — the emphasis is on getting the recognition flow wo
 end to end and on being honest when the AI isn't sure, rather than on feature count.
 
 **Live demo:** <link>https://wine-journal-tau.vercel.app</link>
-**Screen recording:** _<paste link>_
+**Screen recording:** <link>https://drive.google.com/file/d/1PPKKRt-50R1KSbdZHCkcpPUcb4UazM1b/view?usp=sharing</link>
 
 ---
 

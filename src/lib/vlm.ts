@@ -38,6 +38,16 @@ function stripJsonFences(text: string): string {
   return fenced ? fenced[1] : trimmed;
 }
 
+/** Reads (without consuming) an error response to find which upstream provider failed. */
+async function extractProviderName(res: Response): Promise<string | null> {
+  try {
+    const body = await res.clone().json();
+    return body?.error?.metadata?.provider_name ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** LLM output is a system boundary — normalize the couple of fields models get wrong despite instructions. */
 function normalizeExtraction(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return raw;
@@ -77,7 +87,12 @@ async function readStreamedContent(res: Response): Promise<string> {
   return content;
 }
 
-async function callOpenRouterOnce(imageDataUrl: string, apiKey: string, model: string) {
+async function callOpenRouterOnce(
+  imageDataUrl: string,
+  apiKey: string,
+  model: string,
+  ignoreProviders?: string[]
+) {
   return fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -90,6 +105,9 @@ async function callOpenRouterOnce(imageDataUrl: string, apiKey: string, model: s
       temperature: 0,
       max_tokens: 1024,
       stream: true,
+      // On retry we exclude whichever upstream provider just failed/rate-limited us,
+      // so OpenRouter routes the retry to a different provider instead of the same one.
+      ...(ignoreProviders?.length ? { provider: { ignore: ignoreProviders } } : {}),
       messages: [
         {
           role: "user",
@@ -109,12 +127,20 @@ async function recognizeWithOpenRouter(imageDataUrl: string): Promise<VlmExtract
 
   const model = process.env.OPENROUTER_VLM_MODEL || "qwen/qwen2.5-vl-72b-instruct";
 
-  // Upstream providers behind OpenRouter occasionally 5xx transiently; one retry
-  // clears most of those without masking a real, persistent failure.
   let res = await callOpenRouterOnce(imageDataUrl, apiKey, model);
-  if (!res.ok && res.status >= 500) {
-    await new Promise((r) => setTimeout(r, 1000));
-    res = await callOpenRouterOnce(imageDataUrl, apiKey, model);
+
+  // One retry for transient upstream failures (5xx) or a rate-limited provider (429).
+  // For 429s we exclude that specific provider so the retry routes elsewhere instead
+  // of hitting the same limit again; no artificial delay, since a different provider
+  // is a fresh capacity pool, not something that needs time to recover.
+  if (!res.ok && (res.status >= 500 || res.status === 429)) {
+    const failedProvider = await extractProviderName(res);
+    res = await callOpenRouterOnce(
+      imageDataUrl,
+      apiKey,
+      model,
+      failedProvider ? [failedProvider] : undefined
+    );
   }
 
   if (!res.ok) {
