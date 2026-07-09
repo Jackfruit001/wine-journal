@@ -5,7 +5,7 @@ database of real wines, and creates a dated journal entry you can correct and sa
 It's built as a prototype — the emphasis is on getting the recognition flow working
 end to end and on being honest when the AI isn't sure, rather than on feature count.
 
-**Live demo:** _<link>https://wine-journal-tau.vercel.app</link>_
+**Live demo:** <link>https://wine-journal-tau.vercel.app</link>
 **Screen recording:** _<paste link>_
 
 ---
@@ -183,23 +183,9 @@ The Kaggle dataset has no `vintage` or `wine_type` column, so it's worth being e
   calibrated on labelled label photos.
 - **Trigram limits.** Heavy OCR noise or very different naming can miss; long DB titles
   dilute similarity. The dataset also contains many near-duplicate bottlings, so
-  candidate lists can look repetitive.
+  candidate lists look repetitive.
 - **No auth** — the demo journal is a single shared history. Tests cover the pure logic;
   the network/DB paths are exercised manually.
-
-## What I'd improve with more time
-
-- **Calibrate on real photos:** collect a labelled set, measure precision/recall, and fit
-  the weights/thresholds instead of hand-tuning them.
-- **Semantic matching with `pgvector`** (embed `winery + title`) for robustness to OCR
-  noise and paraphrase where trigram misses.
-- **Reverse-image matching** (e.g. Google Vision web detection) as a second recognition
-  path for wines absent from the text database — closer to how Vivino identifies bottles.
-- **Learn from corrections:** `user_edited` diffs are labelled training data for
-  improving extraction and recalibrating confidence.
-- **Image preprocessing** (de-skew, multi-crop) for angled or partially cropped labels,
-  and de-duplicating candidates that differ only by vintage.
-- **Cache by image hash** so re-uploading the same photo doesn't re-run the model.
 
 ---
 
